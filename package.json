@@ -1,0 +1,40 @@
+{
+  "name": "jive-persistence-postgres",
+  "description": "Postgres persistence strategy for jive-sdk",
+  "version": "0.0.1",
+  "main": "./postgres.js",
+  "author": {
+    "name": "Jive Software",
+    "email": "jivedev@jivesoftware"
+  },
+  "dependencies": {
+    "q": "0.9.3",
+    "pg": "*",
+    "sql-ddl-sync" : "*",
+    "jive-sdk" : "*",
+    "flat" : "*",
+    "stream-array" : "*"
+  },
+  "devDependencies": {},
+  "optionalDependencies": {},
+  "engines": {
+    "node": "*"
+  },
+  "contributors": [
+    {
+      "name": "Aron Racho",
+      "email": "aron.racho@jivesoftware.com"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/jivesoftware/jive-persistence-postgres"
+  },
+  "keywords": [
+    "jive",
+    "framework",
+    "app",
+    "purposeful_places",
+    "api"
+  ]
+}
