@@ -24,6 +24,27 @@ function sanitize(key) {
     return key.replace('.', '_');
 }
 
+function hydrate(row) {
+    var toUnflatten = {};
+    for (var dataKey in row) {
+
+        if (row.hasOwnProperty(dataKey)) {
+            var value = row[dataKey];
+            if (value ) {
+                if ( value.indexOf('<__@> ') == 0 ) {
+                    value = value.split('<__@> ')[1];
+                    value = JSON.parse(value);
+                }
+                toUnflatten[dataKey] = value;
+            }
+        }
+    }
+
+    var obj = flat.unflatten(toUnflatten, {'delimiter': '_'});
+    delete obj[""];
+    return obj;
+}
+
 module.exports = function(serviceConfig) {
     var databaseUrl;
 
@@ -172,64 +193,87 @@ module.exports = function(serviceConfig) {
                     data._id = key;
                 }
 
-                var keys = [];
-                var values = [];
-                var sanitized = {};
-
-                data = flat.flatten(data, {'delimiter': '_'});
-
-                for ( var dataKey in data ) {
-
-                    if ( data.hasOwnProperty(dataKey) ) {
-                        var value = data[dataKey];
-                        if ( dataKey.indexOf('.') > -1 ) {
-                            var originalKey = dataKey;
-                            dataKey = sanitize(dataKey);
-                            sanitized[dataKey] =  originalKey;
-                        }
-                        keys.push( dataKey );
-                        if ( typeof value == 'object' ) {
-                            value = JSON.stringify(value);
-                        }
-                        values.push(  value ? "'" + value + "'" : 'null' );
+                postgresObj.findByID(collectionID, key).then( function(found) {
+                    if ( found ) {
+                        // destroy existing first
+                        return postgresObj.remove(collectionID, key);
+                    } else {
+                        return q.resolve();
                     }
+                }).then( function() {
 
-                }
+                    var keys = [];
+                    var values = [];
+                    var sanitized = {};
 
-                var sql = "insert into \"" + collectionID + "\" ( " + keys.join(',') + " ) values ( " + values.join(',') + ")";
-                query(sql).then( function(r) {
-                    if (r.rowCount < 1 ) {
-                        deferred.reject(new Error("failed to insert"));
-                        return;
-                    }
 
-                    query("select * from \"" + collectionID + "\" where _id = '" + key + "'").then( function(r) {
-                        if (r.rowCount < 1) {
-                            deferred.reject(new Error("failed to retrieved what was inserted"));
-                            return;
+                    var schemaKeys = [];
+
+                    var dataToSave = {};
+                    for (var k in schema[collectionID]) {
+                        if ( !schema[collectionID].hasOwnProperty(k) ) {
+                            continue;
                         }
-
-                        var inserted = r.rows[0];
-                        var obj = {};
-
-                        // populate object
-                        for ( var dataKey in data ) {
-
-                            if ( data.hasOwnProperty(dataKey) ) {
-                                var originalKey = sanitized[dataKey] || dataKey;
-                                var value = inserted[originalKey];
-                                obj[dataKey] = value;
+                        var keyParts = k !== '_id' ? k.split('_') : [k];
+                        var entry = data;
+                        var notFound = false;
+                        for ( var kp in keyParts) {
+                            if ( entry ) {
+                                entry = entry[ keyParts[kp]];
+                            } else {
+                                notFound = true;
+                                break;
                             }
                         }
 
-                        deferred.resolve(obj);
+                        if ( !notFound) {
+                            dataToSave[k] = typeof entry === 'object' ? '<__@> ' + JSON.stringify(entry, null, 4) : entry;
+                        }
+                    }
+
+                    for ( var dataKey in dataToSave ) {
+
+                        if ( dataToSave.hasOwnProperty(dataKey) ) {
+                            var value = dataToSave[dataKey];
+                            if ( dataKey.indexOf('.') > -1 ) {
+                                var originalKey = dataKey;
+                                dataKey = sanitize(dataKey);
+                                sanitized[dataKey] =  originalKey;
+                            }
+                            if ( value ) {
+                                keys.push( "\"" + dataKey + "\"" );
+                                if ( typeof value == 'object' ) {
+                                    value = JSON.stringify(value);
+                                }
+                                values.push(  value ? "'" + value + "'" : 'null' );
+                            }
+                        }
+                    }
+
+                    if ( values.length < 1) {
+                        deferred.resolve([]);
+                        return;
+                    }
+
+                    var sql = "insert into \"" + collectionID + "\" ( " + keys.join(',') + " ) values ( " + values.join(',') + ")";
+                    query(sql).then( function(r) {
+                        if (r.rowCount < 1 ) {
+                            deferred.reject(new Error("failed to insert"));
+                            return;
+                        }
+
+                        postgresObj.findByID(collectionID, key).then( function(found) {
+                            if ( found ) {
+                                deferred.resolve(found);
+                            } else {
+                                deferred.reject(new Error("Could not find what was just inserted"));
+                            }
+                        });
                     }, function(e) {
                         deferred.reject(e);
-                    });
-                }, function(e) {
-                    deferred.reject(e);
-                })
+                    })
 
+                });
             });
 
             return deferred.promise;
@@ -264,6 +308,8 @@ module.exports = function(serviceConfig) {
                                 var $lte = value['$lte'];
                                 var $in = value['$in'];
 
+                                dataKey = "\"" + dataKey + "\"";
+
                                 var subClauses = [];
                                 if ( $gt ) {
                                     subClauses.push( dataKey + " > '" + $gt + "'");
@@ -292,6 +338,7 @@ module.exports = function(serviceConfig) {
                                 where.push( "(" + subClauses.join(' AND ') + ")");
 
                             } else {
+                                dataKey = "\"" + dataKey + "\"";
                                 var whereClause = dataKey + " = '" + value + "'";
                                 where.push(whereClause);
                             }
@@ -299,7 +346,10 @@ module.exports = function(serviceConfig) {
                     }
                 }
 
-                var sql = "select * from \"" + collectionID + "\" where " + where.join(' AND ');
+                var sql = "select * from \"" + collectionID + "\" ";
+                if ( where.length > 0 ) {
+                    sql += "where " + where.join(' AND ');
+                }
                 query(sql).then( function(r) {
                     var results = [];
 
@@ -310,16 +360,7 @@ module.exports = function(serviceConfig) {
 
                     // build a json structure from the results, based on '_' delimiter
                     r.rows.forEach( function(row) {
-                        var toUnflatten = {};
-                        for ( var dataKey in row ) {
-
-                            if ( row.hasOwnProperty(dataKey)) {
-                                var value = row[dataKey];
-                                toUnflatten[dataKey] = value;
-                            }
-                        }
-
-                        var obj = flat.unflatten( toUnflatten, {'delimiter': '_'});
+                        var obj = hydrate(row);
                         results.push(obj);
                     });
 
@@ -429,6 +470,7 @@ module.exports = function(serviceConfig) {
         },
 
         sync: function( toSync, dropIfExists ) {
+            toSync = toSync || [];
             var p = q.defer();
 
             this.init().then( function() {
