@@ -31,7 +31,7 @@ function hydrate(row) {
         if (row.hasOwnProperty(dataKey)) {
             var value = row[dataKey];
             if (value ) {
-                if ( value.indexOf('<__@> ') == 0 ) {
+                if ( value.indexOf && value.indexOf('<__@> ') == 0 ) {
                     value = value.split('<__@> ')[1];
                     value = JSON.parse(value);
                 }
@@ -70,6 +70,10 @@ module.exports = function(serviceConfig) {
 
     var sync = undefined;
     var schema = {};
+    var toSync = {};
+    if ( serviceConfig['schema'] ) {
+        toSync = serviceConfig['schema'];
+    }
 
     db.connect(function(err) {
         if(err) {
@@ -89,7 +93,7 @@ module.exports = function(serviceConfig) {
 
     var query = function(sql) {
         var p = q.defer();
-        jive.logger.info(sql);
+        jive.logger.debug(sql);
         db.query(sql, function(err, result) {
             if(err) {
                 p.reject(err);
@@ -165,7 +169,7 @@ module.exports = function(serviceConfig) {
                     })
                 });
             } else {
-                jive.logger.info("table already exists");
+                jive.logger.debug("table already exists");
                 p.resolve();
             }
         });
@@ -187,7 +191,7 @@ module.exports = function(serviceConfig) {
         save : function( collectionID, key, data) {
             var deferred = q.defer();
 
-            this.init().then( function() {
+            this.init(collectionID).then( function() {
 
                 if ( data && !data['_id'] ) {
                     data._id = key;
@@ -289,7 +293,7 @@ module.exports = function(serviceConfig) {
         find : function( collectionID, criteria, cursor) {
             var deferred = q.defer();
 
-            this.init().then( function() {
+            this.init(collectionID).then( function() {
                 var where = [];
 
                 for ( var dataKey in criteria ) {
@@ -342,6 +346,9 @@ module.exports = function(serviceConfig) {
                                 var whereClause = dataKey + " = '" + value + "'";
                                 where.push(whereClause);
                             }
+                        } else {
+                            deferred.reject(new Error(collectionID + "." + dataKey + " does not exist"));
+                            return;
                         }
                     }
                 }
@@ -359,10 +366,15 @@ module.exports = function(serviceConfig) {
                     }
 
                     // build a json structure from the results, based on '_' delimiter
-                    r.rows.forEach( function(row) {
-                        var obj = hydrate(row);
-                        results.push(obj);
-                    });
+                    if (r.rows['indexOf']) {
+                        r.rows.forEach( function(row) {
+                            var obj = hydrate(row);
+                            results.push(obj);
+                        });
+                    } else {
+                        results.push(hydrate(r.rows));
+                    }
+
 
                     if ( !cursor ) {
                         deferred.resolve( results );
@@ -400,14 +412,18 @@ module.exports = function(serviceConfig) {
          */
         findByID: function( collectionID, key ) {
             var deferred = q.defer();
-            return this.find( collectionID, {'_id': key}).then( function(r) {
-                if ( r && r.length > 0 ) {
-                    return r[0];
-                }
-                return null;
-            }, function(e) {
-                return q.reject(e);
+            postgresObj.init(collectionID).then( function() {
+                postgresObj.find( collectionID, {'_id': key}).then( function(r) {
+                    if ( r && r.length > 0 ) {
+                        deferred.resolve(r[0]);
+                    }
+                    return deferred.resolve(null);
+                }, function(e) {
+                    return q.reject(e);
+                });
             });
+
+            return deferred.promise;
         },
 
         /**
@@ -452,18 +468,34 @@ module.exports = function(serviceConfig) {
 
         query: query,
 
-        init: function() {
+        init: function(collectionID) {
             var p = q.defer();
+
+            function extracted() {
+                if (toSync[collectionID]) {
+                    var table = {
+                        'tableName': collectionID,
+                        'attrs': toSync[collectionID]
+                    };
+                }
+                if (table && !schema[collectionID]) {
+                    syncTable(table).then(function () {
+                        p.resolve();
+                    });
+                } else {
+                    p.resolve();
+                }
+            }
 
             if ( !sync )  {
                 var interval = setInterval( function() {
                     if ( sync ) {
                         clearInterval(interval);
-                        p.resolve();
+                        extracted();
                     }
                 }, 1000);
             } else {
-                p.resolve();
+                extracted();
             }
 
             return p.promise;
