@@ -73,6 +73,15 @@ module.exports = function(serviceConfig) {
     var toSync = {};
     if ( serviceConfig['schema'] ) {
         toSync = serviceConfig['schema'];
+        if ( toSync ) {
+            for ( var k in toSync ) {
+                if (toSync.hasOwnProperty(k) ) {
+                    var value = toSync[k];
+                    delete toSync[k];
+                    toSync[k.toLowerCase()] = value;
+                }
+            }
+        }
     }
 
     db.connect(function(err) {
@@ -120,11 +129,12 @@ module.exports = function(serviceConfig) {
         });
     };
 
-    var syncTable = function( table, dropIfExists ) {
+    var syncTable = function( table, dropIfExists, force ) {
         var p = q.defer();
 
         var tableName = table['tableName'];
         tableName = tableName.replace('"','');
+        tableName = tableName.toLowerCase();
 
         var tableAttrs = table['attrs'];
         if ( !tableAttrs['_id'] ) {
@@ -146,7 +156,7 @@ module.exports = function(serviceConfig) {
 
         tableExists(tableName).then( function(exists) {
 
-            if ( !exists ) {
+            if ( !exists || force ) {
 
                 sync.defineCollection(tableName, tableAttrs);
 
@@ -177,6 +187,44 @@ module.exports = function(serviceConfig) {
         return p.promise;
     };
 
+    var expandIfNecessary = function(collectionID, collectionSchema, data) {
+        var requireSync;
+        for ( var kk in data ) {
+            if ( !data.hasOwnProperty(kk) ) {
+                continue;
+            }
+
+            if ( !collectionSchema[kk] ) {
+                continue;
+            }
+
+            var columnInfo = collectionSchema[kk].expandable;
+            if ( !columnInfo ) {
+                continue;
+            }
+
+            // its an expandable field
+            var dataValue = data[kk];
+            var flattened = flat.flatten(dataValue, {'delimiter': '_'});
+            for ( var k in flattened ) {
+                if ( flattened.hasOwnProperty(k)) {
+                    collectionSchema[kk + '_' + k] = { type: "text", required: false };
+                }
+            }
+            // remove original field
+            requireSync = true;
+        }
+
+        if ( requireSync ) {
+            return syncTable( {
+                'tableName' : collectionID,
+                'attrs' : collectionSchema
+            }, false, true);
+        } else {
+            return q.resolve();
+        }
+    };
+
     var postgresObj = {
 
         /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -189,6 +237,8 @@ module.exports = function(serviceConfig) {
          * @param data
          */
         save : function( collectionID, key, data) {
+            collectionID = collectionID.toLowerCase();
+            var collectionSchema = schema[collectionID];
             var deferred = q.defer();
 
             this.init(collectionID).then( function() {
@@ -205,17 +255,15 @@ module.exports = function(serviceConfig) {
                         return q.resolve();
                     }
                 }).then( function() {
-
+                    return expandIfNecessary(collectionID, collectionSchema, data);
+                }).then( function() {
                     var keys = [];
                     var values = [];
                     var sanitized = {};
 
-
-                    var schemaKeys = [];
-
                     var dataToSave = {};
-                    for (var k in schema[collectionID]) {
-                        if ( !schema[collectionID].hasOwnProperty(k) ) {
+                    for (var k in  collectionSchema) {
+                        if ( !collectionSchema.hasOwnProperty(k) ) {
                             continue;
                         }
                         var keyParts = k !== '_id' ? k.split('_') : [k];
@@ -290,7 +338,9 @@ module.exports = function(serviceConfig) {
          * @param criteria
          * @param cursor if true, then returned item is a cursor; otherwise its a concrete collection (array) of items
          */
-        find : function( collectionID, criteria, cursor) {
+        find: function( collectionID, criteria, cursor) {
+            collectionID = collectionID.toLowerCase();
+
             var deferred = q.defer();
 
             this.init(collectionID).then( function() {
@@ -411,6 +461,8 @@ module.exports = function(serviceConfig) {
          * @param key
          */
         findByID: function( collectionID, key ) {
+            collectionID = collectionID.toLowerCase();
+
             var deferred = q.defer();
             postgresObj.init(collectionID).then( function() {
                 postgresObj.find( collectionID, {'_id': key}).then( function(r) {
@@ -433,6 +485,8 @@ module.exports = function(serviceConfig) {
          * @param key
          */
         remove : function( collectionID, key ) {
+            collectionID = collectionID.toLowerCase();
+
             var deferred = q.defer();
 
             this.init().then( function() {
@@ -469,6 +523,8 @@ module.exports = function(serviceConfig) {
         query: query,
 
         init: function(collectionID) {
+            collectionID = collectionID ? collectionID.toLowerCase() : undefined;
+
             var p = q.defer();
 
             function extracted() {
