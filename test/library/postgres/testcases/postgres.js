@@ -10,30 +10,19 @@ describe('jive', function () {
             var testUtils = this['testUtils'];
             var persistence = this['persistence'];
 
-            var toSync = [
-                {
-                    tableName: 'tbl',
-                    attrs: {
-                        data: { type: "text", required: true }
-                    }
+            var toSync = {
+                'tbl' : {
+                    data: { type: "text", required: true }
                 },
-
-                {
-                    tableName: 'myCollection',
-                    attrs: {
-                        key:       { type: "text", required: false },
-                        data_name: { type: "text", required: false },
-                        data_age:  { type: "text", required: false }
-                    }
+                'myCollection' : {
+                    key:       { type: "text", required: false },
+                    data_name: { type: "text", required: false },
+                    data_age:  { type: "text", required: false }
                 },
-
-                {
-                    tableName: 'myOtherCollection',
-                    attrs: {
-                        data_number:    { type: "text", required: false }
-                    }
+                'myOtherCollection' : {
+                    data_number:    { type: "text", required: false }
                 }
-            ];
+            };
 
             persistence.sync( toSync, true)
             .then( function() {

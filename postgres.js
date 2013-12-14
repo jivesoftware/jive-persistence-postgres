@@ -558,15 +558,21 @@ module.exports = function(serviceConfig) {
         },
 
         sync: function( toSync, dropIfExists ) {
-            toSync = toSync || [];
+            toSync = toSync || {};
             var p = q.defer();
 
             this.init().then( function() {
 
                 var proms = [];
-                toSync.forEach( function(table) {
-                    proms.push( syncTable(table, dropIfExists));
-                });
+                for ( var key in toSync ) {
+                    if ( toSync.hasOwnProperty(key) ) {
+                        var table = {
+                            'tableName' : key,
+                            'attrs' : toSync[key]
+                        };
+                        proms.push( syncTable(table, dropIfExists));
+                    }
+                }
 
                 q.all(proms).then( function() {
                     p.resolve();
