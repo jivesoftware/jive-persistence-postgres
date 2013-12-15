@@ -68,9 +68,10 @@ module.exports = function(serviceConfig) {
     var postgres = require('pg');
     var db = new postgres.Client(databaseUrl);
 
-    var sync = undefined;
+    var connected = false;
     var schema = {};
     var toSync = {};
+    var analyzed = {};
     if ( serviceConfig['schema'] ) {
         toSync = serviceConfig['schema'];
         if ( toSync ) {
@@ -90,14 +91,7 @@ module.exports = function(serviceConfig) {
             return process.exit(-1);
         }
 
-        var Sync = require("sql-ddl-sync").Sync;
-        sync = new Sync({
-            dialect : "postgresql",
-            db      : db,
-            debug   : function (text) {
-                jive.logger.info("> %s", text);
-            }
-        });
+        connected = true;
     });
 
     var query = function(sql) {
@@ -129,49 +123,64 @@ module.exports = function(serviceConfig) {
         });
     };
 
+    var registerTable = function(collectionID, tableAttrs) {
+        // sanitize column names
+        for (var key in tableAttrs) {
+            if (tableAttrs.hasOwnProperty(key)) {
+                var value = tableAttrs[key];
+                if (key.indexOf('.') > -1) {
+                    delete tableAttrs[key];
+                    key = sanitize(key);
+                    tableAttrs[key] = value;
+                }
+                schema[collectionID] = tableAttrs;
+            }
+        }
+    };
+
     var syncTable = function( table, dropIfExists, force ) {
         var p = q.defer();
 
-        var tableName = table['tableName'];
-        tableName = tableName.replace('"','');
-        tableName = tableName.toLowerCase();
+        var collectionID = table['tableName'];
+        collectionID = collectionID.replace('"','');
+        collectionID = collectionID.toLowerCase();
 
         var tableAttrs = table['attrs'];
         if ( !tableAttrs['_id'] ) {
             tableAttrs['_id'] = { type: "text", required: true };
         }
 
-        // sanitize column names
-        for ( var key in tableAttrs ) {
-            if ( tableAttrs.hasOwnProperty(key) ) {
-                var value = tableAttrs[key];
-                if ( key.indexOf('.') > -1 ) {
-                    delete tableAttrs[key];
-                    key = sanitize(key);
-                    tableAttrs[key] = value;
-                }
-                schema[tableName] = tableAttrs;
-            }
-        }
-
-        tableExists(tableName).then( function(exists) {
+        registerTable(collectionID, tableAttrs);
+        tableExists(collectionID).then( function(exists) {
 
             if ( !exists || force ) {
 
-                sync.defineCollection(tableName, tableAttrs);
+                //
+                var Sync = require("sql-ddl-sync").Sync;
+                var sync = new Sync({
+                    suppressColumnDrop: true,
+                    dialect : "postgresql",
+                    db      : db,
+                    debug   : function (text) {
+                        jive.logger.info("> %s", text);
+                    }
+                });
+
+                sync.defineCollection(collectionID, tableAttrs);
 
                 sync.sync(function (err) {
                     if (err) {
                         jive.logger.error("> Sync Error", err);
                         p.reject(err);
                     } else {
-                        jive.logger.info("> Sync Done", tableName );
+                        jive.logger.info("> Sync Done", collectionID );
+                        delete toSync[collectionID];
                         p.resolve();
                     }
                 });
 
             } else if (dropIfExists ) {
-                dropTable(tableName).then( function() {
+                dropTable(collectionID).then( function() {
                     syncTable(table, false).then( function() {
                         p.resolve();
                     }, function(e) {
@@ -187,34 +196,70 @@ module.exports = function(serviceConfig) {
         return p.promise;
     };
 
-    var expandIfNecessary = function(collectionID, collectionSchema, data) {
+    var expandIfNecessary = function(collectionID, collectionSchema, data, lazyCreateCollection) {
         var requireSync;
-        for ( var kk in data ) {
-            if ( !data.hasOwnProperty(kk) ) {
+
+        if ( !collectionSchema ) {
+            // collection doesn't exist
+            if ( lazyCreateCollection ) {
+                collectionSchema = {};
+                schema[collectionID] = collectionSchema;
+                requireSync = true;
+            } else {
+                // don't create the collection if lazy create is not allowed
+                return q.resolve();
+            }
+        }
+
+        for ( var dataKey in data ) {
+            if ( !data.hasOwnProperty(dataKey) ) {
                 continue;
             }
 
-            if ( !collectionSchema[kk] ) {
+            dataKey = dataKey.replace('.', '_');
+
+            if ( !collectionSchema[dataKey] ) {
+                // collection schema doesn't have the attribute
+                if ( lazyCreateCollection ) {
+                    // if lazy collection is enabled, then add it and stimulate a sync
+                    // mark it as expandable, since it was dynamically created
+                    collectionSchema[dataKey] = { type: "text", required: false, expandable: true };
+                    requireSync = true;
+                } else {
+                    // lazy collection is not enabled, therefore don't add it to schema (or expanding)
+                    // and avoid syncing
+                    continue;
+                }
+            }
+
+            // the attribute is in the collection schema, its expandable if its an object and if its marked expandable
+            var dataValue = data[dataKey];
+            var expandable = collectionSchema[dataKey].expandable && typeof dataValue === 'object';
+            if ( !expandable ) {
+                // if its not an expandable, then leave it alone
                 continue;
             }
 
-            var columnInfo = collectionSchema[kk].expandable;
-            if ( !columnInfo ) {
-                continue;
-            }
-
-            // its an expandable field
-            var dataValue = data[kk];
+            // its an expandable field: expand it (eg. make new columns)
             var flattened = flat.flatten(dataValue, {'delimiter': '_'});
             for ( var k in flattened ) {
                 if ( flattened.hasOwnProperty(k)) {
-                    collectionSchema[kk + '_' + k] = { type: "text", required: false };
+                    if (k.indexOf('$lt')  > -1 || k.indexOf('$gt')  > -1
+                     || k.indexOf('$lte') > -1 || k.indexOf('$gte') > -1 || k.indexOf('$in') > -1 ) {
+                        continue;
+                    }
+
+                    if ( !collectionSchema[dataKey + '_' + k] ) {
+                        collectionSchema[dataKey + '_' + k] = { type: "text", required: false, expandable: true };
+                        requireSync = true;
+                    }
                 }
             }
-            // remove original field
-            requireSync = true;
         }
 
+        //
+        // sync the table (alter its structure) if necessary
+        //
         if ( requireSync ) {
             return syncTable( {
                 'tableName' : collectionID,
@@ -238,7 +283,6 @@ module.exports = function(serviceConfig) {
          */
         save : function( collectionID, key, data) {
             collectionID = collectionID.toLowerCase();
-            var collectionSchema = schema[collectionID];
             var deferred = q.defer();
 
             this.init(collectionID).then( function() {
@@ -248,20 +292,17 @@ module.exports = function(serviceConfig) {
                 }
 
                 postgresObj.findByID(collectionID, key).then( function(found) {
-                    if ( found ) {
-                        // destroy existing first
-                        return postgresObj.remove(collectionID, key);
-                    } else {
-                        return q.resolve();
-                    }
+                    // destroy it first, if it existed already
+                    return found ? postgresObj.remove(collectionID, key) : q.resolve();
                 }).then( function() {
-                    return expandIfNecessary(collectionID, collectionSchema, data);
+                    return expandIfNecessary(collectionID, schema[collectionID], data, true);
                 }).then( function() {
                     var keys = [];
                     var values = [];
                     var sanitized = {};
 
                     var dataToSave = {};
+                    var collectionSchema = schema[collectionID];
                     for (var k in  collectionSchema) {
                         if ( !collectionSchema.hasOwnProperty(k) ) {
                             continue;
@@ -343,7 +384,10 @@ module.exports = function(serviceConfig) {
 
             var deferred = q.defer();
 
-            this.init(collectionID).then( function() {
+            this.init(collectionID)
+            .then( function() {
+                return expandIfNecessary(collectionID, schema[collectionID], criteria, true);
+            }).then( function() {
                 var where = [];
 
                 for ( var dataKey in criteria ) {
@@ -527,31 +571,49 @@ module.exports = function(serviceConfig) {
 
             var p = q.defer();
 
-            function extracted() {
-                if (toSync[collectionID]) {
-                    var table = {
-                        'tableName': collectionID,
-                        'attrs': toSync[collectionID]
-                    };
+            function readSchema() {
+                var p = q.defer();
+                if ( !collectionID ) {
+                    return q.resolve();
                 }
-                if (table && !schema[collectionID]) {
-                    syncTable(table).then(function () {
-                        p.resolve();
-                    });
-                } else {
+                require('sql-ddl-sync/lib/Dialects/postgresql').getCollectionProperties( db, collectionID, function(err, result) {
+                    if ( !err && result ) {
+                        registerTable( collectionID, result );
+                    }
+                    analyzed[collectionID] = true;
                     p.resolve();
-                }
+                });
+                return p.promise;
             }
 
-            if ( !sync )  {
+            function analyze() {
+                (analyzed[collectionID] ? q.resolve() : readSchema()).then( function( ){
+                    if (toSync[collectionID]) {
+                        // syncing is required, do it
+                        var table = {
+                            'tableName': collectionID,
+                            'attrs': toSync[collectionID]
+                        };
+                    }
+                    if (table) {
+                        syncTable(table).then(function () {
+                            p.resolve();
+                        });
+                    } else {
+                        p.resolve();
+                    }
+                });
+            }
+
+            if ( !connected )  {
                 var interval = setInterval( function() {
-                    if ( sync ) {
+                    if ( connected ) {
                         clearInterval(interval);
-                        extracted();
+                        analyze();
                     }
                 }, 1000);
             } else {
-                extracted();
+                analyze();
             }
 
             return p.promise;

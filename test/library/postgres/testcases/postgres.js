@@ -12,7 +12,7 @@ describe('jive', function () {
 
             var toSync = {
                 'tbl' : {
-                    data: { type: "text", required: true }
+                    data: { type: "text", required: false, expandable: true }
                 },
                 'myCollection' : {
                     key:       { type: "text", required: false },
@@ -24,7 +24,14 @@ describe('jive', function () {
                 }
             };
 
-            persistence.sync( toSync, true)
+            persistence.sync( {}, false)
+            .then( function() {
+                return persistence.save('tbl', '1', {
+                    'data' : {
+                        'name' : 'aron'
+                    }
+                });
+            })
             .then( function() {
                 return test.testSave(testUtils, persistence, 'tbl');
             })
