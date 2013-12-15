@@ -1,7 +1,7 @@
 {
   "name": "jive-persistence-postgres",
   "description": "Postgres persistence strategy for jive-sdk",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "main": "./postgres.js",
   "author": "Jive Software <jivedev@jivesoftware>",
   "dependencies": {
