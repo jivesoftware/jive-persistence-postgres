@@ -85,8 +85,12 @@ module.exports = function(serviceConfig) {
         }
     }
 
+    jive.logger.debug('options.databaseUrl:', databaseUrl);
+    jive.logger.debug('options.schema:',  serviceConfig['schema'] );
+
     db.connect(function(err) {
         if(err) {
+            jive.logger.error('Error connecting to', databaseUrl, 'detail:');
             jive.logger.error(err);
             return process.exit(-1);
         }
@@ -147,7 +151,7 @@ module.exports = function(serviceConfig) {
 
         var tableAttrs = table['attrs'];
         if ( !tableAttrs['_id'] ) {
-            tableAttrs['_id'] = { type: "text", required: true };
+            tableAttrs['_id'] = { type: "text", required: true, index: true, unqiue: true };
         }
 
         registerTable(collectionID, tableAttrs);
@@ -268,6 +272,25 @@ module.exports = function(serviceConfig) {
         } else {
             return q.resolve();
         }
+    };
+
+    var createStreamFrom = function(results) {
+        var stream = ArrayStream(results);
+        // graft next method
+        stream.nextCtr = 0;
+        stream.fullCollection = results;
+        stream.next = function (processorFunction) {
+            if (!processorFunction) {
+                return null;
+            }
+            this.nextCtr++;
+            if (this.nextCtr > this.fullCollection.length - 1) {
+                processorFunction(null, null);
+            } else {
+                processorFunction(null, this.fullCollection[this.nextCtr]);
+            }
+        };
+        return stream;
     };
 
     var postgresObj = {
@@ -473,22 +496,7 @@ module.exports = function(serviceConfig) {
                     if ( !cursor ) {
                         deferred.resolve( results );
                     } else {
-                        var stream = ArrayStream(results);
-                        // graft next method
-                        stream.nextCtr = 0;
-                        stream.fullCollection = results;
-                        stream.next = function(processorFunction) {
-                            if ( !processorFunction ) {
-                                return null;
-                            }
-                            this.nextCtr++;
-                            if ( this.nextCtr > this.fullCollection.length - 1 ) {
-                                processorFunction(null, null);
-                            } else {
-                                processorFunction(null, this.fullCollection[this.nextCtr]);
-                            }
-                        };
-
+                        var stream = createStreamFrom(results);
                         deferred.resolve(stream );
                     }
                 }, function(e) {

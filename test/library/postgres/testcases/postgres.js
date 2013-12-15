@@ -24,7 +24,7 @@ describe('jive', function () {
                 }
             };
 
-            persistence.sync( {}, false)
+            persistence.sync( toSync, true)
             .then( function() {
                 return persistence.save('tbl', '1', {
                     'data' : {
