@@ -20,31 +20,6 @@ var jive = require('jive-sdk');
 var flat = require('flat');
 var ArrayStream = require('stream-array');
 
-function sanitize(key) {
-    return key.replace('.', '_');
-}
-
-function hydrate(row) {
-    var toUnflatten = {};
-    for (var dataKey in row) {
-
-        if (row.hasOwnProperty(dataKey)) {
-            var value = row[dataKey];
-            if (value ) {
-                if ( value.indexOf && value.indexOf('<__@> ') == 0 ) {
-                    value = value.split('<__@> ')[1];
-                    value = JSON.parse(value);
-                }
-                toUnflatten[dataKey] = value;
-            }
-        }
-    }
-
-    var obj = flat.unflatten(toUnflatten, {'delimiter': '_'});
-    delete obj[""];
-    return obj;
-}
-
 module.exports = function(serviceConfig) {
     var databaseUrl;
 
@@ -98,7 +73,32 @@ module.exports = function(serviceConfig) {
         connected = true;
     });
 
-    var query = function(sql) {
+    function sanitize(key) {
+        return key.replace('.', '_');
+    }
+
+    function hydrate(row) {
+        var toUnflatten = {};
+        for (var dataKey in row) {
+
+            if (row.hasOwnProperty(dataKey)) {
+                var value = row[dataKey];
+                if (value ) {
+                    if ( value.indexOf && value.indexOf('<__@> ') == 0 ) {
+                        value = value.split('<__@> ')[1];
+                        value = JSON.parse(value);
+                    }
+                    toUnflatten[dataKey] = value;
+                }
+            }
+        }
+
+        var obj = flat.unflatten(toUnflatten, {'delimiter': '_'});
+        delete obj[""];
+        return obj;
+    }
+
+    function query(sql) {
         var p = q.defer();
         jive.logger.debug(sql);
         db.query(sql, function(err, result) {
@@ -109,37 +109,37 @@ module.exports = function(serviceConfig) {
         });
 
         return p.promise;
-    };
+    }
 
-    var startTx = function() {
+    function startTx() {
         return query('BEGIN');
-    };
+    }
 
-    var commitTx = function() {
+    function commitTx() {
         return query('COMMIT');
-    };
+    }
 
-    var rollbackTx = function() {
+    function rollbackTx() {
         return query('ROLLBACK');
-    };
+    }
 
-    var tableExists = function(table) {
+    function tableExists(table) {
         return query("select * from pg_tables where tablename='" + table + "'").then( function(r) {
             return r && r.rowCount > 0;
         }, function(e) {
             return q.reject(e);
         });
-    };
+    }
 
-    var dropTable = function(table) {
+    function dropTable(table) {
         return query("drop table \"" + table + "\"").then( function(r) {
             return r;
         }, function(e) {
             return q.reject(e);
         });
-    };
+    }
 
-    var registerTable = function(collectionID, tableAttrs) {
+    function registerTable(collectionID, tableAttrs) {
         // sanitize column names
         for (var key in tableAttrs) {
             if (tableAttrs.hasOwnProperty(key)) {
@@ -152,9 +152,9 @@ module.exports = function(serviceConfig) {
                 schema[collectionID] = tableAttrs;
             }
         }
-    };
+    }
 
-    var syncTable = function( table, dropIfExists, force ) {
+    function syncTable( table, dropIfExists, force ) {
         var p = q.defer();
 
         var collectionID = table['tableName'];
@@ -210,9 +210,9 @@ module.exports = function(serviceConfig) {
         });
 
         return p.promise;
-    };
+    }
 
-    var expandIfNecessary = function(collectionID, collectionSchema, data, lazyCreateCollection) {
+    function expandIfNecessary(collectionID, collectionSchema, data, lazyCreateCollection) {
         var requireSync;
 
         if ( !collectionSchema ) {
@@ -284,9 +284,9 @@ module.exports = function(serviceConfig) {
         } else {
             return q.resolve();
         }
-    };
+    }
 
-    var createStreamFrom = function(results) {
+    function createStreamFrom(results) {
         var stream = ArrayStream(results);
         // graft next method
         stream.nextCtr = 0;
@@ -303,12 +303,12 @@ module.exports = function(serviceConfig) {
             }
         };
         return stream;
-    };
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Public
 
     var postgresObj = {
-
-        /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-        // Public
 
         /**
          * Save the provided data in a named collection, and return promise
