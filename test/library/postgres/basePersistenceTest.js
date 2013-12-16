@@ -193,7 +193,7 @@ exports.testFind = function( testUtils, persistence ) {
                         var p = q.defer();
                         var foundCount = 0;
                         cursor.on('data', function(entry, key) {
-                            if ( ["1","2"].indexOf( entry['data']['number']) < 0 ) {
+                            if ( [1,2].indexOf( entry['data']['number']) < 0 ) {
                                 deferred.reject("failed cursor");
                             } else {
                                 foundCount++;
@@ -223,7 +223,7 @@ exports.testFind = function( testUtils, persistence ) {
                         var deferred = q.defer();
                         var process = function(entry) {
                             var p = q.defer();
-                            if ( ["1","2"].indexOf( entry['data']['number']) < 0 ) {
+                            if ( [1,2].indexOf( entry['data']['number']) < 0 ) {
                                 deferred.reject("failed cursor");
                             } else {
                                 foundCount++;

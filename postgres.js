@@ -111,6 +111,18 @@ module.exports = function(serviceConfig) {
         return p.promise;
     };
 
+    var startTx = function() {
+        return query('BEGIN');
+    };
+
+    var commitTx = function() {
+        return query('COMMIT');
+    };
+
+    var rollbackTx = function() {
+        return query('ROLLBACK');
+    };
+
     var tableExists = function(table) {
         return query("select * from pg_tables where tablename='" + table + "'").then( function(r) {
             return r && r.rowCount > 0;
@@ -308,87 +320,100 @@ module.exports = function(serviceConfig) {
             collectionID = collectionID.toLowerCase();
             var deferred = q.defer();
 
-            this.init(collectionID).then( function() {
-
+            postgresObj.init(collectionID).then( function() {
                 if ( data && !data['_id'] ) {
                     data._id = key;
                 }
+            }).then( function() {
+                return startTx();
+            }).then( function() {
+                return postgresObj.findByID(collectionID, key);
+            }).then( function(found) {
+                // destroy it first, if it existed already
+                return found ? postgresObj.remove(collectionID, key) : q.resolve();
+            }).then( function() {
+                return expandIfNecessary(collectionID, schema[collectionID], data, true);
+            }).then( function() {
+                var keys = [], values = [], sanitized = {}, dataToSave = {};
+                var collectionSchema = schema[collectionID];
 
-                postgresObj.findByID(collectionID, key).then( function(found) {
-                    // destroy it first, if it existed already
-                    return found ? postgresObj.remove(collectionID, key) : q.resolve();
-                }).then( function() {
-                    return expandIfNecessary(collectionID, schema[collectionID], data, true);
-                }).then( function() {
-                    var keys = [];
-                    var values = [];
-                    var sanitized = {};
-
-                    var dataToSave = {};
-                    var collectionSchema = schema[collectionID];
-                    for (var k in  collectionSchema) {
-                        if ( !collectionSchema.hasOwnProperty(k) ) {
-                            continue;
-                        }
-                        var keyParts = k !== '_id' ? k.split('_') : [k];
-                        var entry = data;
-                        var notFound = false;
-                        for ( var kp in keyParts) {
-                            if ( entry ) {
-                                entry = entry[ keyParts[kp]];
-                            } else {
-                                notFound = true;
-                                break;
-                            }
-                        }
-
-                        if ( !notFound) {
-                            dataToSave[k] = typeof entry === 'object' ? '<__@> ' + JSON.stringify(entry, null, 4) : entry;
+                for (var k in collectionSchema) {
+                    if ( !collectionSchema.hasOwnProperty(k) ) {
+                        continue;
+                    }
+                    var keyParts = k !== '_id' ? k.split('_') : [k];
+                    var entry = data;
+                    var notFound = false;
+                    for ( var kp in keyParts) {
+                        if ( entry ) {
+                            entry = entry[ keyParts[kp]];
+                        } else {
+                            notFound = true;
+                            break;
                         }
                     }
 
-                    for ( var dataKey in dataToSave ) {
+                    if ( !notFound) {
+                        dataToSave[k] = typeof entry === 'object' ? '<__@> ' + JSON.stringify(entry, null, 4) : entry;
+                    }
+                }
 
-                        if ( dataToSave.hasOwnProperty(dataKey) ) {
-                            var value = dataToSave[dataKey];
-                            if ( dataKey.indexOf('.') > -1 ) {
-                                var originalKey = dataKey;
-                                dataKey = sanitize(dataKey);
-                                sanitized[dataKey] =  originalKey;
+                for ( var dataKey in dataToSave ) {
+                    if ( dataToSave.hasOwnProperty(dataKey) ) {
+                        var value = dataToSave[dataKey];
+                        if ( dataKey.indexOf('.') > -1 ) {
+                            var originalKey = dataKey;
+                            dataKey = sanitize(dataKey);
+                            sanitized[dataKey] =  originalKey;
+                        }
+                        if ( value ) {
+                            keys.push( "\"" + dataKey + "\"" );
+                            if ( typeof value == 'object' ) {
+                                value = JSON.stringify(value);
                             }
-                            if ( value ) {
-                                keys.push( "\"" + dataKey + "\"" );
-                                if ( typeof value == 'object' ) {
-                                    value = JSON.stringify(value);
-                                }
-                                values.push(  value ? "'" + value + "'" : 'null' );
-                            }
+                            values.push(  value ? "'" + value + "'" : 'null' );
                         }
                     }
+                }
 
-                    if ( values.length < 1) {
-                        deferred.resolve([]);
-                        return;
-                    }
+                if ( values.length < 1 ) {
+                    throw new Error( "cannot insert empty data");
+                }
 
-                    var sql = "insert into \"" + collectionID + "\" ( " + keys.join(',') + " ) values ( " + values.join(',') + ")";
-                    query(sql).then( function(r) {
+                var sql = "insert into \"" + collectionID + "\" ( " + keys.join(',') + " ) values ( " + values.join(',') + ")";
+                return query(sql).then(
+                    function(r) {
                         if (r.rowCount < 1 ) {
-                            deferred.reject(new Error("failed to insert"));
-                            return;
+                            throw new Error( "failed to insert");
                         }
 
-                        postgresObj.findByID(collectionID, key).then( function(found) {
+                        return postgresObj.findByID(collectionID, key).then( function(found) {
                             if ( found ) {
-                                deferred.resolve(found);
+                                return q.resolve(found);
                             } else {
-                                deferred.reject(new Error("Could not find what was just inserted"));
+                                throw new Error("Could not find what was just inserted");
                             }
                         });
-                    }, function(e) {
-                        deferred.reject(e);
-                    })
+                    },
 
+                    function(e) {
+                        throw new Error(e);
+                    }
+                );
+            })
+            .then(
+                function(r) {
+                    return commitTx().then(
+                        function() {
+                            //
+                            deferred.resolve(r);
+                        }
+                    );
+                }
+            )
+            .catch( function(e) {
+                return rollbackTx().finally( function() {
+                    deferred.reject(e);
                 });
             });
 
@@ -542,18 +567,23 @@ module.exports = function(serviceConfig) {
             var deferred = q.defer();
 
             this.init().then( function() {
-
-                var sql = "delete from \"" + collectionID + "\" where _id = '" + key + "'";
-                query(sql).then( function(r) {
-                    var results = [];
-
-                    if ( !r || r.rowCount < 1 ) {
-                        deferred.reject();
-                        return;
-                    }
-
-                    deferred.resolve();
-                }, function(e) {
+                return q.resolve();
+            }).then( function() {
+                return startTx();
+            }).then( function() {
+                return query("delete from \"" + collectionID + "\" where _id = '" + key + "'");
+            })
+            .then(
+                function(r) {
+                    return commitTx().then(
+                        function() {
+                            deferred.resolve(r);
+                        }
+                    );
+                }
+            )
+            .catch( function(e) {
+                return rollbackTx().finally( function() {
                     deferred.reject(e);
                 });
             });
