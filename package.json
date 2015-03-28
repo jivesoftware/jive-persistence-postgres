@@ -2,11 +2,11 @@
   "name": "jive-persistence-postgres",
   "description": "Postgres persistence strategy for jive-sdk",
   "version": "0.0.11",
-  "main": "./postgres.js",
+  "main": "./postgres-dynamic.js",
   "author": "Jive Software <jivedev@jivesoftware>",
   "dependencies": {
     "q": "0.9.3",
-    "pg": "3.3.0",
+    "pg": "4.3.0",
     "sql-ddl-sync": "git://github.com/jivesoftware/node-sql-ddl-sync.git",
     "jive-sdk": "*",
     "flat": "1.2.1",

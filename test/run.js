@@ -1,6 +1,7 @@
 var testUtils = require('jive-testing-framework/testUtils');
 var jive = require('jive-sdk');
-var jivePostgres = require('../');
+var jivePostgres = require('../postgres-dynamic');
+var jivePostgresBase = require('../postgres-base');
 
 var makeRunner = function() {
     return testUtils.makeRunner( {
@@ -9,9 +10,13 @@ var makeRunner = function() {
                 test['ctx']['persistence'] = new jivePostgres({
                     'databaseUrl' : 'pg://postgres:postgres@localhost:5432/mydb'
                 });
+                test['ctx']['persistenceBase'] = new jivePostgresBase({
+                    'databaseUrl' : 'pg://postgres:postgres@localhost:5432/mydb'
+                });
             },
             'onTestEnd' : function(test) {
                 test['ctx']['persistence'].destroy();
+                test['ctx']['persistenceBase'].destroy();
             }
         }
     });

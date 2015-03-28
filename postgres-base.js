@@ -24,6 +24,7 @@ module.exports = function(serviceConfig) {
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Init
+    q.longStackSupport = true;
 
     // setup database url
     if (serviceConfig ) {
@@ -34,9 +35,8 @@ module.exports = function(serviceConfig) {
         throw new Error("Cannot initialize connection with empty database URL.");
     }
 
-    jive.logger.info("*******************");
-    jive.logger.info("Postgres connected");
-    jive.logger.info("*******************");
+    jive.logger.info("Postgres connection pool ready.");
+    jive.logger.info("Connected to", databaseUrl);
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Private
@@ -102,7 +102,8 @@ module.exports = function(serviceConfig) {
         commitTx : commitTx,
         rollbackTx : rollbackTx,
         query : query,
-        destroy: destroy
+        destroy: destroy,
+        getClient : getClient
     };
 
     return postgresObj;

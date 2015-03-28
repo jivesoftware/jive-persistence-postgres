@@ -1,6 +1,8 @@
 var q = require('q');
 var jive = require('jive-sdk');
 
+q.longStackSupport = true;
+
 function PostgresClient(client, doneHandler, errorHandler) {
     this.client = client;
     this.doneHandler = doneHandler;
@@ -10,7 +12,7 @@ function PostgresClient(client, doneHandler, errorHandler) {
 PostgresClient.prototype.query = function(sql) {
     var self = this;
     var p = q.defer();
-    jive.logger.info(sql);
+    jive.logger.debug(sql);
     self.client.query(sql, function(err, result) {
         if(err) {
             self.errorHandler(err);
@@ -22,5 +24,14 @@ PostgresClient.prototype.query = function(sql) {
 
     return p.promise;
 };
+
+PostgresClient.prototype.rawClient = function() {
+    return this.client;
+};
+
+PostgresClient.prototype.release = function() {
+    this.doneHandler(this.client);
+};
+
 
 module.exports = PostgresClient;

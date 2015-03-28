@@ -14,10 +14,6 @@
  *    limitations under the License.
  */
 
-/**
- * WARNING: DEPRECATED!!!
- * Use postgres-dynamic.js instead!
- */
 
 var q = require('q');
 var jive = require('jive-sdk');
@@ -42,13 +38,15 @@ module.exports = function(serviceConfig) {
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Private
+    q.longStackSupport = true;
 
     // driver
-    var postgres = require('pg');
-    var db = new postgres.Client(databaseUrl);
+    var postgres = require('./postgres-base');
+    var db = new postgres( {
+        databaseUrl : databaseUrl
+    });
     var postgresDialect = require('sql-ddl-sync/lib/Dialects/postgresql');
 
-    var connected = false;
     var schema = {};
     var toSync = {};
     var analyzed = {};
@@ -67,16 +65,6 @@ module.exports = function(serviceConfig) {
 
     jive.logger.debug('options.databaseUrl:', databaseUrl);
     jive.logger.debug('options.schema:',  serviceConfig['schema'] );
-
-    db.connect(function(err) {
-        if(err) {
-            jive.logger.error('Error connecting to', databaseUrl, 'detail:');
-            jive.logger.error(err);
-            return process.exit(-1);
-        }
-
-        connected = true;
-    });
 
     function isValue(value) {
         return value || typeof value === 'number';
@@ -109,28 +97,22 @@ module.exports = function(serviceConfig) {
     }
 
     function query(sql) {
-        var p = q.defer();
-        jive.logger.debug(sql);
-        db.query(sql, function(err, result) {
-            if(err) {
-                p.reject(err);
-            }
-            p.resolve(result);
-        });
-
-        return p.promise;
+        return db.query(sql);
     }
 
     function startTx() {
-        return query('BEGIN');
+        return db.startTx();
     }
 
     function commitTx() {
-        return query('COMMIT');
+        return db.commitTx();
     }
 
-    function rollbackTx() {
-        return query('ROLLBACK');
+    function rollbackTx(e) {
+        if ( e ) {
+            jive.logger.error(e.stack);
+        }
+        return db.rollbackTx();
     }
 
     function tableExists(table) {
@@ -142,7 +124,7 @@ module.exports = function(serviceConfig) {
     }
 
     function dropTable(table) {
-        return query("drop table \"" + table + "\"").then( function(r) {
+        return query("drop table if exists \"" + table + "\"").then( function(r) {
             return r;
         }, function(e) {
             return q.reject(e);
@@ -185,15 +167,35 @@ module.exports = function(serviceConfig) {
             // check if table exists
             return tableExists(collectionID);
         }).then( function(exists) {
+            if ( (exists && !force) && !dropIfExists ) {
+                // nothing to do:
+                // - the table exists, and we're not forcing any changes
+                // - we are not dropping the table
+                return q.resolve({
+                    exists : exists
+                });
+            } else {
+                // a sync operation is required; grab a client
+                return db.getClient().then( function(client) {
+                    return {
+                        client : client,
+                        exists : exists
+                    }
+                });
+            }
+        }).then( function(r) {
+            var dbClient = r.client;
+            var exists = r.exists;
             var syncDeferred = q.defer();
 
-            if ( !exists || force ) {
-                //
+            if ( dbClient && (!exists || force) ) {
+
+                // if we're here, then the table exists; only run the sync if its forced
                 var Sync = require("sql-ddl-sync").Sync;
                 var sync = new Sync({
                     suppressColumnDrop: true,
                     dialect : "postgresql",
-                    db      : db,
+                    db      : dbClient.rawClient(),
                     debug   : function (text) {
                         jive.logger.info("> %s", text);
                     }
@@ -203,9 +205,11 @@ module.exports = function(serviceConfig) {
                 sync.sync(function (err) {
                     if (err) {
                         jive.logger.error("> Sync Error", err);
+                        dbClient.release();
                         throw new Error(err);
                     } else {
                         jive.logger.info("> Sync Done", collectionID );
+                        dbClient.release();
                         delete toSync[collectionID];
                         syncDeferred.resolve();
                     }
@@ -214,13 +218,22 @@ module.exports = function(serviceConfig) {
             } else if (dropIfExists ) {
                 return dropTable(collectionID).then( function() {
                     return syncTable(table, false).then( function() {
+                        if ( dbClient ) {
+                            dbClient.release();
+                        }
                         syncDeferred.resolve();
                     }, function(e) {
+                        if ( dbClient ) {
+                            dbClient.release();
+                        }
                         throw new Error(e);
                     })
                 });
             } else {
                 jive.logger.debug("table already exists");
+                if ( dbClient ) {
+                    dbClient.release();
+                }
                 syncDeferred.resolve();
             }
             return syncDeferred.promise;
@@ -228,12 +241,12 @@ module.exports = function(serviceConfig) {
                 p.resolve();
             }, function(e) {
                 jive.logger.error(e.stack);
-                 p.reject(e);
+                p.reject(e);
             }
         ).catch( function(e) {
-            jive.logger.error(e.stack);
-            p.reject(e);
-        });
+                jive.logger.error(e.stack);
+                p.reject(e);
+            });
 
         return p.promise;
     }
@@ -433,9 +446,9 @@ module.exports = function(serviceConfig) {
                     data._id = key;
                 }
             }).then( function() {
-                return startTx();
-            }).then( function() {
                 return expandIfNecessary(collectionID, schema[collectionID], key, data);
+            }).then( function() {
+                return startTx();
             }).then( function() {
                 // try to update first
                 var structure = buildQueryArguments(collectionID, data, key);
@@ -462,7 +475,7 @@ module.exports = function(serviceConfig) {
                     },
 
                     function(e) {
-                        return rollbackTx().finally( function() {
+                        return rollbackTx(e).finally( function() {
                             deferred.reject(e);
                         });
                     }
@@ -492,14 +505,14 @@ module.exports = function(serviceConfig) {
                         },
 
                         function(e) {
-                            return rollbackTx().finally( function() {
+                            return rollbackTx(e).finally( function() {
                                 deferred.reject(e);
                             });
                         }
                     );
                 }
             })
-            .then(
+                .then(
                 function(r) {
                     return commitTx().then(
                         function() {
@@ -509,11 +522,11 @@ module.exports = function(serviceConfig) {
                     );
                 }
             )
-            .catch( function(e) {
-                return rollbackTx().finally( function() {
-                    deferred.reject(e);
+                .catch( function(e) {
+                    return rollbackTx(e).finally( function() {
+                        deferred.reject(e);
+                    });
                 });
-            });
 
             return deferred.promise;
         },
@@ -531,106 +544,106 @@ module.exports = function(serviceConfig) {
             var deferred = q.defer();
 
             postgresObj.init(collectionID)
-            .then( function() {
-                return expandIfNecessary(collectionID, schema[collectionID], null, criteria);
-            }).then( function() {
-                var where = [];
+                .then( function() {
+                    return expandIfNecessary(collectionID, schema[collectionID], null, criteria);
+                }).then( function() {
+                    var where = [];
 
-                if ( criteria ) {
-                    for ( var dataKey in criteria ) {
+                    if ( criteria ) {
+                        for ( var dataKey in criteria ) {
 
-                        if ( criteria.hasOwnProperty(dataKey) ) {
-                            var original = dataKey;
-                            dataKey = sanitize(dataKey);
+                            if ( criteria.hasOwnProperty(dataKey) ) {
+                                var original = dataKey;
+                                dataKey = sanitize(dataKey);
 
-                            if ( schema[collectionID] && schema[collectionID][dataKey]) {
-                                var value = criteria[original];
+                                if ( schema[collectionID] && schema[collectionID][dataKey]) {
+                                    var value = criteria[original];
 
-                                if ( typeof value == 'object') {
-                                    var $gt = value['$gt'];
-                                    var $gte = value['$gte'];
-                                    var $lt = value['$lt'];
-                                    var $lte = value['$lte'];
-                                    var $in = value['$in'];
+                                    if ( typeof value == 'object') {
+                                        var $gt = value['$gt'];
+                                        var $gte = value['$gte'];
+                                        var $lt = value['$lt'];
+                                        var $lte = value['$lte'];
+                                        var $in = value['$in'];
 
-                                    dataKey = "\"" + dataKey + "\"";
+                                        dataKey = "\"" + dataKey + "\"";
 
-                                    var subClauses = [];
-                                    if ( $gt ) {
-                                        subClauses.push( dataKey + " > '" + $gt + "'");
+                                        var subClauses = [];
+                                        if ( $gt ) {
+                                            subClauses.push( dataKey + " > '" + $gt + "'");
+                                        }
+
+                                        if ( $gte ) {
+                                            subClauses.push( dataKey + " >= '" + $gte  + "'");
+                                        }
+
+                                        if ( $lt ) {
+                                            subClauses.push( dataKey + " < '" + $lt + "'" );
+                                        }
+
+                                        if ( $lte ) {
+                                            subClauses.push( dataKey + " <= '" + $lte + "'" );
+                                        }
+
+                                        if ( $in ) {
+                                            var ins = [];
+                                            $in.forEach( function(i) {
+                                                ins.push("'" + i + "'");
+                                            });
+                                            subClauses.push( dataKey + " in (" + ins.join(',') + ")" );
+
+                                        }
+                                        where.push( "(" + subClauses.join(' AND ') + ")");
+
+                                    } else {
+                                        dataKey = "\"" + dataKey + "\"";
+                                        var whereClause = dataKey + " = '" + value + "'";
+                                        where.push(whereClause);
                                     }
-
-                                    if ( $gte ) {
-                                        subClauses.push( dataKey + " >= '" + $gte  + "'");
-                                    }
-
-                                    if ( $lt ) {
-                                        subClauses.push( dataKey + " < '" + $lt + "'" );
-                                    }
-
-                                    if ( $lte ) {
-                                        subClauses.push( dataKey + " <= '" + $lte + "'" );
-                                    }
-
-                                    if ( $in ) {
-                                        var ins = [];
-                                        $in.forEach( function(i) {
-                                            ins.push("'" + i + "'");
-                                        });
-                                        subClauses.push( dataKey + " in (" + ins.join(',') + ")" );
-
-                                    }
-                                    where.push( "(" + subClauses.join(' AND ') + ")");
-
                                 } else {
-                                    dataKey = "\"" + dataKey + "\"";
-                                    var whereClause = dataKey + " = '" + value + "'";
-                                    where.push(whereClause);
+                                    deferred.reject(new Error(collectionID + "." + dataKey + " does not exist"));
+                                    return;
                                 }
-                            } else {
-                                deferred.reject(new Error(collectionID + "." + dataKey + " does not exist"));
-                                return;
                             }
                         }
                     }
-                }
 
-                var sql = "select * from \"" + collectionID + "\" ";
-                if ( where.length > 0 ) {
-                    sql += "where " + where.join(' AND ');
-                }
-                if ( limit ) {
-                    sql += " limit " + limit;
-                }
-                query(sql).then( function(r) {
-                    var results = [];
-
-                    if ( !r || r.rowCount < 1 ) {
-                        deferred.resolve(results);
-                        return;
+                    var sql = "select * from \"" + collectionID + "\" ";
+                    if ( where.length > 0 ) {
+                        sql += "where " + where.join(' AND ');
                     }
-
-                    // build a json structure from the results, based on '_' delimiter
-                    if (r.rows['indexOf']) {
-                        r.rows.forEach( function(row) {
-                            var obj = hydrate(row);
-                            results.push(obj);
-                        });
-                    } else {
-                        results.push(hydrate(r.rows));
+                    if ( limit ) {
+                        sql += " limit " + limit;
                     }
+                    query(sql).then( function(r) {
+                        var results = [];
 
-                    if ( !cursor ) {
-                        deferred.resolve( results );
-                    } else {
-                        var stream = createStreamFrom(results);
-                        deferred.resolve(stream );
-                    }
-                }, function(e) {
-                    jive.logger.error(e.stack);
-                    deferred.reject(e);
+                        if ( !r || r.rowCount < 1 ) {
+                            deferred.resolve(results);
+                            return;
+                        }
+
+                        // build a json structure from the results, based on '_' delimiter
+                        if (r.rows['indexOf']) {
+                            r.rows.forEach( function(row) {
+                                var obj = hydrate(row);
+                                results.push(obj);
+                            });
+                        } else {
+                            results.push(hydrate(r.rows));
+                        }
+
+                        if ( !cursor ) {
+                            deferred.resolve( results );
+                        } else {
+                            var stream = createStreamFrom(results);
+                            deferred.resolve(stream );
+                        }
+                    }, function(e) {
+                        jive.logger.error(e.stack);
+                        deferred.reject(e);
+                    });
                 });
-            });
 
             return deferred.promise;
         },
@@ -687,7 +700,7 @@ module.exports = function(serviceConfig) {
                     return query("delete from \"" + collectionID + "\"");
                 }
             })
-            .then(
+                .then(
                 function(r) {
                     return commitTx().then(
                         function() {
@@ -696,11 +709,11 @@ module.exports = function(serviceConfig) {
                     );
                 }
             )
-            .catch( function(e) {
-                return rollbackTx().finally( function() {
-                    deferred.reject(e);
+                .catch( function(e) {
+                    return rollbackTx(e).finally( function() {
+                        deferred.reject(e);
+                    });
                 });
-            });
 
             return deferred.promise;
         },
@@ -716,7 +729,9 @@ module.exports = function(serviceConfig) {
 
         /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-        query: query,
+        query: function(sql) {
+            return query(sql);
+        },
 
         init: function(collectionID) {
             collectionID = collectionID ? collectionID.toLowerCase() : undefined;
@@ -732,13 +747,17 @@ module.exports = function(serviceConfig) {
                 }
 
                 var deferred = q.defer();
-                postgresDialect.getCollectionProperties( db, collectionID, function(err, result) {
-                    if ( !err && result ) {
-                        registerTable( collectionID, result );
-                    }
-                    analyzed[collectionID] = true;
-                    deferred.resolve();
+                db.getClient().then( function(dbClient) {
+                    postgresDialect.getCollectionProperties( dbClient.rawClient(), collectionID, function(err, result) {
+                        if ( !err && result ) {
+                            registerTable( collectionID, result );
+                        }
+                        analyzed[collectionID] = true;
+                        dbClient.release();
+                        deferred.resolve();
+                    });
                 });
+
                 return deferred.promise;
             }
 
@@ -759,16 +778,7 @@ module.exports = function(serviceConfig) {
                 });
             }
 
-            if ( !connected )  {
-                var interval = setInterval( function() {
-                    if ( connected ) {
-                        clearInterval(interval);
-                        analyze();
-                    }
-                }, 1000);
-            } else {
-                analyze();
-            }
+            analyze();
 
             return p.promise;
         },
