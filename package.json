@@ -6,11 +6,11 @@
   "author": "Jive Software <jivedev@jivesoftware>",
   "dependencies": {
     "q": "0.9.3",
-    "pg": "*",
+    "pg": "3.3.0",
     "sql-ddl-sync": "git://github.com/jivesoftware/node-sql-ddl-sync.git",
     "jive-sdk": "*",
-    "flat": "*",
-    "stream-array": "*"
+    "flat": "1.2.1",
+    "stream-array": "0.1.3"
   },
   "devDependencies": {},
   "optionalDependencies": {},
