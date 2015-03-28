@@ -41,6 +41,9 @@ describe('jive', function () {
             .then( function() {
                 return test.testRemove(testUtils, persistence, 'tbl');
             })
+//            .then( function() {
+//                return test.testRemoveObject(testUtils, persistence, 'tbl');
+//            })
             .catch( function(e) {
                 assert.fail(e);
             })
