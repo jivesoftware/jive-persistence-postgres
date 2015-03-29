@@ -151,8 +151,6 @@ function syncTable( table, dropIfExists, force ) {
         var syncDeferred = q.defer();
 
         if ( dbClient && (!exists || force) ) {
-
-            // if we're here, then the table exists; only run the sync if its forced
             var Sync = require("sql-ddl-sync").Sync;
             var sync = new Sync({
                 suppressColumnDrop: true,
@@ -162,6 +160,7 @@ function syncTable( table, dropIfExists, force ) {
                     jive.logger.info("> %s", text);
                 }
             });
+
             sync.defineCollection(collectionID, tableAttrs);
 
             sync.sync(function (err) {
@@ -199,16 +198,22 @@ function syncTable( table, dropIfExists, force ) {
             syncDeferred.resolve();
         }
         return syncDeferred.promise;
-    }).then( function() {
+    }).then(
+
+        // success
+        function() {
             p.resolve();
-        }, function(e) {
+        },
+
+        // error
+        function(e) {
             jive.logger.error(e.stack);
             p.reject(e);
         }
     ).catch( function(e) {
-            jive.logger.error(e.stack);
-            p.reject(e);
-        });
+        jive.logger.error(e.stack);
+        p.reject(e);
+    });
 
     return p.promise;
 }
@@ -305,7 +310,9 @@ function expandIfNecessary(collectionID, collectionSchema, key, data ) {
         }, false, true).then( function() {
             return q.resolve();
         }, function(e) {
-            throw new Error(e);
+            var error = new Error(e);
+            jive.logger.error(error.stack);
+            throw error;
         });
     } else {
         return q.resolve();
