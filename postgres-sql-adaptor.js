@@ -40,6 +40,12 @@ function isValue(value) {
     return value || typeof value === 'number';
 }
 
+function throwError(detail) {
+    var error = new Error(detail);
+    jive.logger.error(error.stack);
+    throw error;
+}
+
 function sanitize(key) {
     return key.replace('.', '_');
 }
@@ -128,9 +134,7 @@ function createUpdateSQL(collectionID, data, key) {
     var values = structure.values;
     var keys = structure.keys;
     if (values.length < 1) {
-        var error = new Error("cannot insert empty data");
-        jive.logger.error(error.stack);
-        throw error;
+        throwError("cannot insert empty data");
     }
 
     var sql = "update \"" + collectionID + "\" set";
@@ -216,9 +220,7 @@ function createSelectSQL(collectionID, criteria, limit) {
                         where.push(whereClause);
                     }
                 } else {
-                    var error = new Error(collectionID + "." + dataKey + " does not exist");
-                    jive.logger.error(error.stack);
-                    throw  error;
+                    throwError(collectionID + "." + dataKey + " does not exist");
                 }
             }
         }

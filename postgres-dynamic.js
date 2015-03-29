@@ -78,6 +78,12 @@ module.exports = function(serviceConfig) {
         return schemaSyncer.expandIfNecessary(collectionID, collectionSchema, key, data);
     }
 
+    function throwError(detail) {
+        var error = new Error(detail);
+        jive.logger.error(error.stack);
+        throw error;
+    }
+
     function createStreamFrom(results) {
         var stream = ArrayStream(results);
         // graft next method
@@ -152,7 +158,7 @@ module.exports = function(serviceConfig) {
                         // success
                         function(r) {
                             if (r.rowCount < 1 ) {
-                                throw new Error( "failed to insert");
+                                throwError("failed to insert");
                             }
                             return q.resolve(data);
                         },
@@ -192,6 +198,7 @@ module.exports = function(serviceConfig) {
          * @param limit optional
          */
         find: function( collectionID, criteria, cursor, limit) {
+
             collectionID = collectionID.toLowerCase();
 
             var deferred = q.defer();
@@ -201,25 +208,31 @@ module.exports = function(serviceConfig) {
                     return expandIfNecessary(collectionID, schemaSyncer.getTableSchema(collectionID), null, criteria);
                 }).then( function() {
                     var sql = sqlAdaptor.createSelectSQL(collectionID, criteria, limit);
-                    query(sql).then( function(r) {
-                        if ( !r || r.rowCount < 1 ) {
-                            // if no results, return empty array
-                            deferred.resolve([]);
-                            return;
-                        }
+                    query(sql).then(
+                        // success
+                        function(r) {
+                            if ( !r || r.rowCount < 1 ) {
+                                // if no results, return empty array
+                                deferred.resolve([]);
+                                return;
+                            }
 
-                        var results = sqlAdaptor.hydrateResults(r);
+                            var results = sqlAdaptor.hydrateResults(r);
 
-                        if ( !cursor ) {
-                            deferred.resolve( results );
-                        } else {
-                            var stream = createStreamFrom(results);
-                            deferred.resolve(stream );
+                            if ( !cursor ) {
+                                deferred.resolve( results );
+                            } else {
+                                var stream = createStreamFrom(results);
+                                deferred.resolve(stream );
+                            }
+                        },
+
+                        // error
+                        function(e) {
+                            jive.logger.error(e.stack);
+                            deferred.reject(e);
                         }
-                    }, function(e) {
-                        jive.logger.error(e.stack);
-                        deferred.reject(e);
-                    });
+                    );
                 });
 
             return deferred.promise;

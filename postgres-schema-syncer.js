@@ -59,6 +59,12 @@ PostgresSchemaSyncer.prototype.getTableSchema = getTableSchema;
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Private
 
+function throwError(detail) {
+    var error = new Error(detail);
+    jive.logger.error(error.stack);
+    throw error;
+}
+
 function sanitize(key) {
     return key.replace('.', '_');
 }
@@ -167,7 +173,7 @@ function syncTable( table, dropIfExists, force ) {
                 if (err) {
                     jive.logger.error("> Sync Error", err);
                     dbClient.release();
-                    throw new Error(err);
+                    throwError(err);
                 } else {
                     jive.logger.info("> Sync Done", collectionID );
                     dbClient.release();
@@ -187,7 +193,7 @@ function syncTable( table, dropIfExists, force ) {
                     if ( dbClient ) {
                         dbClient.release();
                     }
-                    throw new Error(e);
+                    throwError(e);
                 })
             });
         } else {
@@ -310,9 +316,7 @@ function expandIfNecessary(collectionID, collectionSchema, key, data ) {
         }, false, true).then( function() {
             return q.resolve();
         }, function(e) {
-            var error = new Error(e);
-            jive.logger.error(error.stack);
-            throw error;
+            throwError(e);
         });
     } else {
         return q.resolve();
