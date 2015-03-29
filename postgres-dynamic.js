@@ -269,11 +269,8 @@ module.exports = function(serviceConfig) {
 
             startTx()
             .then( function() {
-                if ( key ) {
-                    return query("delete from \"" + collectionID + "\" where _id = '" + key + "'");
-                } else {
-                    return query("delete from \"" + collectionID + "\"");
-                }
+                var sql = sqlAdaptor.createDeleteSQL(collectionID, key);
+                return query(sql);
             })
             .then(
                 function(r) {

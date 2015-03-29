@@ -31,6 +31,7 @@ module.exports = PostgresSqlAdaptor;
 PostgresSqlAdaptor.prototype.createUpdateSQL = createUpdateSQL;
 PostgresSqlAdaptor.prototype.createInsertSQL = createInsertSQL;
 PostgresSqlAdaptor.prototype.createSelectSQL = createSelectSQL;
+PostgresSqlAdaptor.prototype.createDeleteSQL = createDeleteSQL;
 PostgresSqlAdaptor.prototype.hydrateResults = hydrateResults;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -232,6 +233,14 @@ function createSelectSQL(collectionID, criteria, limit) {
     }
 
     return sql;
+}
+
+function createDeleteSQL(collectionID, key ) {
+    if ( key ) {
+        return "delete from \"" + collectionID + "\" where _id = '" + key + "'";
+    } else {
+        return "delete from \"" + collectionID + "\"";
+    }
 }
 
 function hydrate(row) {
