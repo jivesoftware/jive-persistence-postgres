@@ -38,6 +38,7 @@ PostgresClient.prototype.query = function(sql) {
     jive.logger.debug(sql);
     self.client.query(sql, function(err, result) {
         if(err) {
+            jive.logger.error(err);
             self.errorHandler(err);
             p.reject(err);
         }
