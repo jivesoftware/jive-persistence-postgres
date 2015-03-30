@@ -16,6 +16,7 @@
 
 
 var q = require('q');
+    q.longStackSupport = true;
 var jive = require('jive-sdk');
 var PostgresClient = require('./postgres-client');
 
@@ -24,7 +25,6 @@ module.exports = function(serviceConfig) {
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Init
-    q.longStackSupport = true;
 
     // setup database url
     if (serviceConfig ) {
@@ -52,6 +52,10 @@ module.exports = function(serviceConfig) {
 
         // get a pg client from the connection pool
         postgres.connect(databaseUrl, function(err, client, done) {
+            if ( err ) {
+                deferred.reject(new Error(err).stack);
+                return;
+            }
             var handleError = function(err) {
                 // no error occurred, continue with the request
                 if(!err) return false;
@@ -65,8 +69,17 @@ module.exports = function(serviceConfig) {
                 return true;
             };
 
-            var client = new PostgresClient(client, done, handleError);
-            deferred.resolve(client);
+            var postgresClient = new PostgresClient(client, done, handleError);
+
+            setTimeout( function() {
+                if ( !postgresClient.released ) {
+                    // kill the client if takes too long
+                    jive.logger.error(new Error("Client has not yet been released! Closing connection, returning it to the pool.").stack);
+                    handleError(client);
+                }
+            }, 10000);
+
+            deferred.resolve(postgresClient);
         });
         return deferred.promise;
     }
@@ -75,18 +88,6 @@ module.exports = function(serviceConfig) {
        return getClient().then( function(client) {
            return client.query(sql);
        });
-    }
-
-    function startTx() {
-        return query('BEGIN');
-    }
-
-    function commitTx() {
-        return query('COMMIT');
-    }
-
-    function rollbackTx() {
-        return query('ROLLBACK');
     }
 
     function destroy() {
@@ -98,9 +99,6 @@ module.exports = function(serviceConfig) {
     // Public API
 
     var postgresObj = {
-        startTx : startTx,
-        commitTx : commitTx,
-        rollbackTx : rollbackTx,
         query : query,
         destroy: destroy,
         getClient : getClient

@@ -30,21 +30,31 @@ function PostgresClient(client, doneHandler, errorHandler) {
     this.client = client;
     this.doneHandler = doneHandler;
     this.errorHandler = errorHandler;
+    this.result = null;
+    this.released = false;
 }
 
 PostgresClient.prototype.query = function(sql) {
     var self = this;
     var p = q.defer();
-    jive.logger.debug(sql);
-    self.client.query(sql, function(err, result) {
-        if(err) {
-            jive.logger.error(err);
-            self.errorHandler(err);
-            p.reject(err);
-        }
-        self.doneHandler();
-        p.resolve(result);
-    });
+    try {
+        jive.logger.debug(sql);
+        self.client.query(sql, function(err, result) {
+            if(err) {
+                jive.logger.error(err);
+                self.errorHandler(err);
+                self.result = null;
+                p.reject(err);
+            }
+            self.result = result;
+            p.resolve(self);
+        });
+    } catch ( e ) {
+        // no matter what ... always call done
+        console.log(e.stack);
+        self.doneHandler(self.client);
+        self.released = true;
+    }
 
     return p.promise;
 };
@@ -54,8 +64,14 @@ PostgresClient.prototype.rawClient = function() {
 };
 
 PostgresClient.prototype.release = function() {
-    this.doneHandler(this.client);
+    if ( !this.released) {
+        this.doneHandler();
+        this.released = true;
+    }
 };
 
+PostgresClient.prototype.results = function() {
+    return this.result;
+};
 
 module.exports = PostgresClient;

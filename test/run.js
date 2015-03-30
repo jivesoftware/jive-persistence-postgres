@@ -32,7 +32,7 @@ makeRunner().runTests(
         'rootSuiteName' : 'jive',
         'runMode' : 'test',
         'testcases' : process.cwd()  + '/library',
-        'timeout' : 5000
+        'timeout' : 500000
     }
 ).then( function(allClear) {
     if ( allClear ) {

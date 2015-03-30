@@ -77,7 +77,9 @@ function getTableSchema(table) {
 }
 
 function query(sql) {
-    return this.db.query(sql);
+    return this.db.query(sql).then( function(dbClient) {
+        dbClient.release();
+    });
 }
 
 function tableExists(table) {
