@@ -46,7 +46,7 @@ describe('jive', function () {
                     })
                     .then( function(r) {
                         // update
-                        return dbClient.query('update test_table1 set test_column1 = 2000')
+                        return dbClient.query('update test_table1 set test_column1 = $1', [2000])
                         .then( function() {
                             var results = dbClient.results();
                             if ( !results ) {

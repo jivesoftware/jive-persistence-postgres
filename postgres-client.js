@@ -34,12 +34,12 @@ function PostgresClient(client, doneHandler, errorHandler) {
     this.released = false;
 }
 
-PostgresClient.prototype.query = function(sql) {
+PostgresClient.prototype.query = function(sql, values) {
     var self = this;
     var p = q.defer();
     try {
-        jive.logger.debug(sql);
-        self.client.query(sql, function(err, result) {
+        jive.logger.debug(sql, values);
+        self.client.query(sql, values, function(err, result) {
             if(err) {
                 jive.logger.error(err);
                 self.errorHandler(err);
