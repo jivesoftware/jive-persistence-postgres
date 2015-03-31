@@ -231,6 +231,10 @@ module.exports = function(serviceConfig) {
                         dbClient.release();
                     }
                 });
+            })
+            // failed to acquire the client
+            .fail( function(e) {
+                deferred.reject(e);
             });
 
             return deferred.promise;
@@ -290,6 +294,9 @@ module.exports = function(serviceConfig) {
                         }
                     );
                 })
+                .fail(function(e){
+                    deferred.reject(e);
+                })
 
                 // always try to release the client, if it exists
                 .finally(function() {
@@ -298,6 +305,10 @@ module.exports = function(serviceConfig) {
                         dbClient.release();
                     }
                 });
+            })
+            // failed to acquire the client
+            .fail( function(e) {
+                deferred.reject(e);
             });
 
             return deferred.promise;
@@ -389,6 +400,10 @@ module.exports = function(serviceConfig) {
                         dbClient.release();
                     }
                 });
+            })
+            // failed to acquire the client
+            .fail( function(e) {
+                deferred.reject(e);
             });
 
             return deferred.promise;

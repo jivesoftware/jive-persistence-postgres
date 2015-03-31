@@ -22,6 +22,8 @@ var PostgresClient = require('./postgres-client');
 
 module.exports = function(serviceConfig) {
     var databaseUrl;
+    var clientAcquireTimeoutMs;
+    var dbPoolSize;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Init
@@ -29,33 +31,67 @@ module.exports = function(serviceConfig) {
     // setup database url
     if (serviceConfig ) {
         databaseUrl = serviceConfig['databaseUrl'];
+        clientAcquireTimeoutMs = serviceConfig['clientAcquireTimeoutMs'];
     }
 
     if ( !databaseUrl ) {
         throw new Error("Cannot initialize connection with empty database URL.");
     }
 
+    if ( !clientAcquireTimeoutMs ) {
+        // default to 15 second client acquisition timeout attempt
+        clientAcquireTimeoutMs = 15 * 1000;
+    }
+
+    if ( !dbPoolSize ) {
+        // default to 10 pooled connections
+        dbPoolSize = 10;
+    }
+
     jive.logger.info("Postgres connection pool ready.");
-    jive.logger.info("Connected to", databaseUrl);
+    jive.logger.info("Connect URL: ", databaseUrl);
+    jive.logger.debug("clientAcquireTimeoutMs: ", clientAcquireTimeoutMs);
+    jive.logger.debug("dbPoolSize: ", dbPoolSize);
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Private
 
     // driver
     var postgres = require('pg');
+    postgres.defaults.poolSize = dbPoolSize;
 
     jive.logger.debug('options.databaseUrl:', databaseUrl);
     jive.logger.debug('options.schema:',  serviceConfig['schema'] );
+    jive.logger.debug('options.clientAcquireTimeoutMs:',  serviceConfig['clientAcquireTimeoutMs'] );
+    jive.logger.debug('options.dbPoolSize:',  serviceConfig['dbPoolSize'] );
 
-    function getClient() {
-        var deferred = q.defer();
+//    var t = new Date().getTime();
+
+    function requestClient(clientID, deferred) {
+
+        var clientCheckoutCountdownInterval = setTimeout(
+            function() {
+                // kill the client request if takes too long
+                deferred.reject(new Error("Could not fetch a client from postgres, aborting."));
+                clientID = null;
+            }, clientAcquireTimeoutMs); // should be able to retrieve a client in 15 seconds; otherwise timeout
 
         // get a pg client from the connection pool
         postgres.connect(databaseUrl, function(err, client, done) {
+            // clear the error-throwing timeout since we got a response from postgres
+            clearTimeout(clientCheckoutCountdownInterval);
+
             if ( err ) {
-                deferred.reject(new Error(err).stack);
+                deferred.reject(new Error(err));
                 return;
             }
+
+            if ( !clientID ) {
+                // the countdown timer killed it; release this client
+                done();
+                return q.reject("Connection timed out; client acquired late was released and is not available.");
+            }
+
             var handleError = function(err) {
                 // no error occurred, continue with the request
                 if(!err) return false;
@@ -70,17 +106,20 @@ module.exports = function(serviceConfig) {
             };
 
             var postgresClient = new PostgresClient(client, done, handleError);
-
-            setTimeout( function() {
-                if ( !postgresClient.released ) {
-                    // kill the client if takes too long
-                    jive.logger.error(new Error("Client has not yet been released! Closing connection, returning it to the pool.").stack);
-                    handleError(client);
-                }
-            }, 10000);
-
             deferred.resolve(postgresClient);
         });
+    }
+
+    function getClient() {
+        var deferred = q.defer();
+
+//        if ( new Date().getTime() - t > 10000 && new Date().getTime() % 4 == 0 ) {
+//            return q.reject(new Error("Failed to get a client"));
+//        }
+
+        var clientID = jive.util.guid();
+        requestClient(clientID, deferred);
+
         return deferred.promise;
     }
 

@@ -151,6 +151,8 @@ function syncTable( table, dropIfExists, force ) {
                     client : client,
                     exists : exists
                 }
+            }).fail( function(e) {
+                return q.reject(e);
             });
         }
     }).then( function(r) {
@@ -349,6 +351,8 @@ function prepCollection(collectionID) {
                 dbClient.release();
                 deferred.resolve();
             });
+        }).fail( function(e) {
+            deferred.reject(e);
         });
 
         return deferred.promise;
@@ -368,6 +372,8 @@ function prepCollection(collectionID) {
             } else {
                 p.resolve();
             }
+        }).fail( function(e) {
+            p.reject(e);
         });
     }
 
