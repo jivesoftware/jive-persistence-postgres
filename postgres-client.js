@@ -40,11 +40,11 @@ PostgresClient.prototype.query = function(sql, values) {
     try {
         jive.logger.debug(sql, values);
         self.client.query(sql, values, function(err, result) {
-            if(err) {
+            if (self.errorHandler(err)) {
                 jive.logger.error(err);
-                self.errorHandler(err);
                 self.result = null;
                 p.reject(err);
+                return;
             }
             self.result = result;
             p.resolve(self);
@@ -54,6 +54,7 @@ PostgresClient.prototype.query = function(sql, values) {
         console.log(e.stack);
         self.doneHandler(self.client);
         self.released = true;
+        p.reject(e);
     }
 
     return p.promise;

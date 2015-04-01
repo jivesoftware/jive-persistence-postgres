@@ -67,6 +67,8 @@ module.exports = function(serviceConfig) {
 
 //    var t = new Date().getTime();
 
+    var badErrorCodeClasses = ['08','53','54','55','57','58','F0','P0','XX'];
+
     function requestClient(clientID, deferred) {
 
         var clientCheckoutCountdownInterval = setTimeout(
@@ -96,12 +98,15 @@ module.exports = function(serviceConfig) {
                 // no error occurred, continue with the request
                 if(!err) return false;
 
-                // An error occurred, remove the client from the connection pool.
-                // A truthy value passed to done will remove the connection from the pool
-                // instead of simply returning it to be reused.
-                // In this case, if we have successfully received a client (truthy)
-                // then it will be removed from the pool.
-                done(client);
+                var errClass = err.code.substr(0, 2);
+                if ( badErrorCodeClasses.indexOf(errClass) > -1 ) {
+                    // An SERIOUS error occurred, remove the client from the connection pool.
+                    // A truthy value passed to done will remove the connection from the pool
+                    // instead of simply returning it to be reused.
+                    // In this case, if we have successfully received a client (truthy)
+                    // then it will be removed from the pool.
+                    done(client);
+                }
                 return true;
             };
 
