@@ -143,6 +143,7 @@ function syncTable( table, dropIfExists, force ) {
             // nothing to do:
             // - the table exists, and we're not forcing any changes
             // - we are not dropping the table
+            delete self.toSync[collectionID];
             return q.resolve({
                 exists : exists
             });
@@ -363,6 +364,7 @@ function prepCollection(collectionID) {
 
         function readSchema() {
             if ( !collectionID || self.analyzed[collectionID] ) {
+                delete self.toSync[collectionID];
                 return q.resolve();
             }
 

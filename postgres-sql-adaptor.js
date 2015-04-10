@@ -245,28 +245,6 @@ function createDeleteSQL(collectionID, key ) {
     }
 }
 
-function hydrate(row) {
-    var toUnflatten = {};
-    var needFlatten;
-    for (var dataKey in row) {
-
-        if (row.hasOwnProperty(dataKey)) {
-            var value = row[dataKey];
-            if (isValue(value) ) {
-                if ( value.indexOf && value.indexOf('<__@> ') == 0 ) {
-                    value = value.split('<__@> ')[1];
-                    value = JSON.parse(value);
-                    needFlatten = true;
-                }
-                toUnflatten[dataKey] = value;
-            }
-        }
-    }
-    var obj = needFlatten ? flat.unflatten(toUnflatten, {'delimiter': '_'}) : toUnflatten;
-    delete obj[""];
-    return obj;
-}
-
 function hydrateResults(r) {
     var results = [];
 
