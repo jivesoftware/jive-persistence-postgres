@@ -29,6 +29,11 @@ module.exports = function(serviceConfig) {
         databaseUrl = serviceConfig['databaseUrl'];
     }
 
+    // pass in the logger if it exists
+    if ( serviceConfig.customLogger ) {
+        jive.logger = serviceConfig.customLogger;
+    }
+
     if ( !databaseUrl ) {
         databaseUrl = 'pg://postgres:postgres@localhost:5432/mydb';
     }
