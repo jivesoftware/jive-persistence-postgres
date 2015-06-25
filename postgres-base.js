@@ -32,6 +32,7 @@ module.exports = function(serviceConfig) {
     if (serviceConfig ) {
         databaseUrl = serviceConfig['databaseUrl'];
         clientAcquireTimeoutMs = serviceConfig['clientAcquireTimeoutMs'];
+	dbPoolSize = serviceConfig['dbPoolSize'];
     }
 
     if ( !databaseUrl ) {
