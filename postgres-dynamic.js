@@ -23,10 +23,12 @@ var SqlAdaptor = require('./postgres-sql-adaptor');
 
 module.exports = function(serviceConfig) {
     var databaseUrl;
+    var dbPoolSize;
 
     // setup database url
     if (serviceConfig ) {
         databaseUrl = serviceConfig['databaseUrl'];
+        dbPoolSize = serviceConfig['dbPoolSize'];
     }
 
     // pass in the logger if it exists
@@ -48,7 +50,8 @@ module.exports = function(serviceConfig) {
     // driver
     var postgres = require('./postgres-base');
     var db = new postgres( {
-        databaseUrl : databaseUrl
+        databaseUrl : databaseUrl,
+        dbPoolSize : dbPoolSize
     });
     var schemaSyncer = new SchemaSyncer(db, serviceConfig['schema']);
     var sqlAdaptor = new SqlAdaptor(schemaSyncer);
