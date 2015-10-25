@@ -8,10 +8,12 @@ var makeRunner = function() {
         'eventHandlers' : {
             'onTestStart' : function(test) {
                 test['ctx']['persistence'] = new jivePostgres({
-                    'databaseUrl' : 'pg://postgres:postgres@localhost:5432/mydb'
+                    'databaseUrl' : 'pg://postgres:postgres@localhost:5432/mydb',
+                    'dbPoolSize' : '15'
                 });
                 test['ctx']['persistenceBase'] = new jivePostgresBase({
-                    'databaseUrl' : 'pg://postgres:postgres@localhost:5432/mydb'
+                    'databaseUrl' : 'pg://postgres:postgres@localhost:5432/mydb',
+                    'dbPoolSize' : '15'
                 });
             },
             'onTestEnd' : function(test) {
