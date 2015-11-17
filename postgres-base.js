@@ -52,7 +52,7 @@ module.exports = function(serviceConfig) {
     jive.logger.info("Postgres connection pool ready.");
     jive.logger.info("Connect URL: ", databaseUrl);
     jive.logger.debug("clientAcquireTimeoutMs: ", clientAcquireTimeoutMs);
-    jive.logger.debug("dbPoolSize: ", dbPoolSize);
+    jive.logger.info("dbPoolSize: ", dbPoolSize);
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Private
