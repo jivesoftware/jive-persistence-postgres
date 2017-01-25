@@ -6,7 +6,7 @@
   "author": "Jive Software <jivedev@jivesoftware>",
   "dependencies": {
     "q": "0.9.3",
-    "pg": "4.3.0",
+    "pg": "6.1.2",
     "sql-ddl-sync": "git://github.com/jivesoftware/node-sql-ddl-sync.git",
     "jive-sdk": "*",
     "flat": "1.2.1",
