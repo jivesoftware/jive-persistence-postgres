@@ -53,6 +53,10 @@ function sanitize(key) {
 function hydrate(row) {
     var toUnflatten = {};
     var needFlatten;
+
+    /*** 1 of 3 - VARIABLE FOR STORING OAUTH KEY IF FOUND ***/
+    var oauthKey = null;
+
     for (var dataKey in row) {
 
         if (row.hasOwnProperty(dataKey)) {
@@ -64,10 +68,23 @@ function hydrate(row) {
                     needFlatten = true;
                 }
                 toUnflatten[dataKey] = value;
+                /*** 2 of 3 - IF KEY IS "oauth" THEN WE HOLD ONTO THE RAW VALUE ***/
+                if (dataKey === "oauth") {
+                  oauthKey = value;
+                } // end if
             }
         }
     }
-    var obj = needFlatten ? flat.unflatten(toUnflatten, {'delimiter': '_'}) : toUnflatten;
+
+
+    var obj = toUnflatten;
+    if (needFlatten) {
+      obj = flat.unflatten(toUnflatten, {'delimiter': '_'});
+      /*** 3 of 3 - ADDED OPTION FOR OAUTH KEYS STORED IN JSON STRUCTURES, WHICH FLATTEN CORRUPTS TO "access" : {token : "xxxxx" } rather than preserve access_token; ***/
+      if (oauthKey) {
+        obj["oauth"] = oauthKey;
+      } // end if
+    } // end if
     delete obj[""];
     return obj;
 }
